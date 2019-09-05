@@ -1,0 +1,21 @@
+.ring {
+    stroke: dimgrey;
+    stroke-width: 2px;
+    fill: none;
+}
+
+.molecule.ordinary {
+    fill: lightblue;
+}
+
+.molecule.tracked {
+    fill: blueviolet;
+}
+
+.card {
+    width: 645px;
+}
+
+.results {
+    max-height: 480px;
+}
