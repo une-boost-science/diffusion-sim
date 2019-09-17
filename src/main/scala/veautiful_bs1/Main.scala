@@ -1,6 +1,6 @@
 package veautiful_bs1
 
-import com.wbillingsley.veautiful.{<, Attacher, DElement, ElementComponent, MakeItSo, VNode, ^}
+import com.wbillingsley.veautiful.{<, Attacher, DElement, ElementComponent, Update, VNode, ^}
 import org.scalajs.dom
 import org.scalajs.dom.Node
 import org.scalajs.dom.raw.HTMLInputElement
@@ -10,9 +10,10 @@ import org.scalajs.dom.svg.Circle
 
 import scala.scalajs.js.timers
 import scala.scalajs.js.timers.SetIntervalHandle
-import scala.util.Random
+import scala.util.{Random, Try}
 
 object Main {
+
 
   /** A molecule is a point that has a class so we can see purple ones and green ones */
   case class Molecule(var position: Vec2, ordinary:Boolean = true) {
@@ -54,7 +55,7 @@ object Main {
 
     var tick = 0;
 
-    var results = ArrayBuffer.empty[(Int, Int)]
+    var results:ArrayBuffer[(Int, Int)] = ArrayBuffer.empty
 
     /** The container molecules can't escape */
     val bounds = Rect(Vec2(0,0), Vec2(640, 480))
@@ -81,7 +82,6 @@ object Main {
 
     def reset():Unit = {
       tick = 0
-      results.clear()
       molecules.clear()
 
       val ord = for { _ <- 0 until numOrdinary } yield Molecule(bounds.randomPoint())
@@ -94,8 +94,8 @@ object Main {
       for { m <- molecules } m.move(heat, bounds)
       tick += 1
 
-      if (tick % 100 == 0) {
-        results.append(tick -> outsideBoundary)
+      if (tick == 500) {
+        results.append(heat.toInt -> outsideBoundary)
       }
     }
 
@@ -103,7 +103,7 @@ object Main {
 
   }
 
-  class MoleculeView(m:Molecule) extends VNode {
+  class MoleculeView(m:Molecule) extends VNode with Update {
 
     var domNode: Option[Circle] = None
 
@@ -115,19 +115,6 @@ object Main {
 
       domNode = Some(c)
       c
-      /*
-      val c = dom.document.createElementNS(DElement.svgNS, "circle").asInstanceOf[Circle]
-      c.setAttribute("r", "3")
-      c.classList.add("molecule")
-      if (m.ordinary) {
-        c.classList.add("ordinary")
-      } else {
-        c.classList.add("tracked")
-      }
-
-      c
-      */
-
     }
 
     override def detach(): Unit = {
@@ -145,8 +132,6 @@ object Main {
 
   case object SimulationView extends ElementComponent(<.div()) {
     // And these variables are used to keep track of how long it took us to render ourselves
-    var last:Long = System.currentTimeMillis()
-    var dt:Long = 0
 
     var moleculeNodes = Simulation.molecules.map { m => new MoleculeView(m) }
 
@@ -176,67 +161,187 @@ object Main {
       <.circle(^.attr("cx") := m.p.x, ^.attr("cy") := m.p.y, ^.attr("r") := m.r, ^.cls := "ring")
     }
 
-    def table():VNode = <.div(^.cls := "results col-lg overflow-auto",
-      <.table(^.cls := "table",
-        <.thead(
-          <.tr(
-            <.th(^.attr("scope") := "col", "Tick"),
-            <.th(^.attr("scope") := "col", "Outside boundary")
-          )
-        ),
+    def table():VNode = <.div(^.cls := "results",
+      <.table(^.cls := "table table-bordered results-table",
         <.tbody(
-          Simulation.results.map({ case (tick, num) =>
-              <.tr(
-                <.td(tick.toString),
-                <.td(num.toString)
-              )
-          })
+          <.tr(
+            <.th(^.attr("scope") := "row", "Trial"),
+            Simulation.results.indices.map { i => <.th(s"${i+1}")}
+          ),
+          <.tr(
+            <.th(^.attr("scope") := "row", "Heat"),
+            Simulation.results.map({ case (heat, _) => <.td(heat.toString) })
+          ),
+          <.tr(
+            <.th(^.attr("scope") := "row", "Outside"),
+            Simulation.results.map({ case (_, num) => <.td(num.toString) })
+          )
         )
       )
     )
 
     /** A function to work out what the local VDOM should look like for the current asteroids */
-    def card():VNode = <.div(^.cls := "row",
-      <.div(^.cls := "card",
+    def sim():VNode = {
         svg(
           svgRing(Simulation.boundaryRing),
           moleculeNodes
-        ),
-        <.div(^.cls := "card-footer",
-          <.p(s"Tick: ${Simulation.tick}  Outside boundary: ${Simulation.outsideBoundary}"),
+        )
+    }
 
-          <.div(^.cls := "form-row",
-            <.div(^.cls := "btn-group col-md-3",
-              <("button")(
+    def simFooter():VNode = {
+      <.p(s"Tick: ${Simulation.tick}  Outside boundary: ${Simulation.outsideBoundary}")
+    }
+
+    def scatterPlot():VNode = {
+
+      val plotWidth = 540
+      val plotHeight = 380
+
+      def tickInterval(max:Int, num:Int):Int = {
+        Math.ceil(max.toDouble / num).toInt
+      }
+
+      val xMax = if (Simulation.results.isEmpty) 20 else {
+        Math.max(20, Simulation.results.maxBy(_._1)._1)
+      }
+      val yMax = if (Simulation.results.isEmpty) 100 else {
+        Math.max(100, Simulation.results.maxBy(_._2)._2)
+      }
+
+
+      val xInterval = tickInterval(xMax, 10)
+      def xScale(v:Int):Int = {
+        val adj = 10 * xInterval
+        val ratio = plotWidth.toDouble / adj
+        (ratio * v).toInt
+      }
+
+      val yInterval = tickInterval(yMax, 5)
+      def yScale(v:Int):Int = {
+        val adj = 5 * yInterval
+        val ratio = plotHeight.toDouble / adj
+        plotHeight - (ratio * v).toInt
+      }
+
+      def xAxis(ticks:Int):VNode = {
+        <("g", ns=DElement.svgNS)(
+          <("line", ns=DElement.svgNS)(^.attr("x1") := "0", ^.attr("x2") := plotWidth.toString, ^.attr("y1") := plotHeight.toString, ^.attr("y2") := plotHeight.toString),
+          <("text", ns=DElement.svgNS)(
+            ^.attr("x") := plotWidth.toString, ^.attr("y") := "430", ^.cls := "axis-label-x", "Heat setting"
+          ),
+          for {
+            i <- 0 to ticks
+          } yield {
+            val v = i * xInterval
+            val x = xScale(v)
+
+            <("g", ns=DElement.svgNS)(
+              <("line", ns=DElement.svgNS)(
+                ^.attr("x1") := x.toString, ^.attr("x2") := x.toString, ^.attr("y1") := plotHeight.toString, ^.attr("y2") := (plotHeight + 10).toString, ^.cls := "tick-line"
+              ),
+              <("text", ns=DElement.svgNS)(
+                ^.attr("y") := (plotHeight + 30).toString, ^.attr("x") := x.toString, ^.cls := "tick-label-x",
+                v.toString
+              )
+            )
+          }
+        )
+      }
+
+      def yAxis(ticks:Int):VNode = {
+
+        <("g", ns=DElement.svgNS)(
+          <("line", ns=DElement.svgNS)(
+            ^.attr("x1") := "0", ^.attr("x2") := "0", ^.attr("y1") := "0", ^.attr("y2") := plotHeight.toString
+          ),
+          <("text", ns=DElement.svgNS)(
+            ^.attr("x") := "0", ^.attr("y") := "0", ^.cls := "axis-label-y", "Outside at tick=500"
+          ),
+          for {
+            i <- 0 to ticks
+          } yield {
+            val v = i * yInterval
+            val y = yScale(v)
+
+            <("g", ns=DElement.svgNS)(
+              <("line", ns=DElement.svgNS)(
+                ^.attr("x1") := "0", ^.attr("x2") := "-10", ^.attr("y1") := y.toString, ^.attr("y2") := y.toString, ^.cls := "tick-line"
+              ),
+              <("text", ns=DElement.svgNS)(^.attr("y") := y.toString, ^.attr("x") := "-20", ^.cls := "tick-label-y",
+                v.toString
+              )
+            )
+          }
+        )
+      }
+
+      def plotPoint(heat:Int, outside:Int) = {
+        val cx = xScale(heat)
+        val cy = yScale(outside)
+
+        <.circle(
+          ^.attr("cx") := cx.toString, ^.attr("cy") := cy.toString, ^.attr("r") := "3", ^.cls := "plot-point"
+        )
+      }
+
+      <.svg.attrs(
+        ^.attr("viewBox") := "-60 -20 620 460",
+        ^.attr("width") := "640",
+        ^.attr("height") := "480"
+      )(
+
+        xAxis(10),
+        yAxis(5),
+        for { (heat, outside) <- Simulation.results } yield plotPoint(heat, outside)
+      )
+    }
+
+    def simControls():VNode = {
+      <.div(^.cls := "form-row",
+        <.div(^.cls := "input-group col-md-5",
+          <.div(^.cls := "input-group-prepend", <.span(^.cls := "input-group-text", "Heat")),
+          <("input")(^.attr("type") := "number", ^.cls := "form-control",
+            ^.prop("value") := Simulation.heat.toString,
+            if (Simulation.tick > 0) {
+              ^.attr("disabled") := "true"
+            } else ^.attr("enabled") := "true",
+            ^.on("input") ==> { event =>
+              event.target match {
+                case i: HTMLInputElement =>
+                  Simulation.heat = Math.max(0, try {
+                    i.value.toInt
+                  } catch {
+                    case _: Throwable => 0
+                  })
+                  rerender()
+                case _ => // do nothing
+              }
+            }
+          ),
+          if (ticking) {
+            <.div(^.cls := "input-group-append",
+              <("button", "play")(^.attr("id") := "pause",
                 ^.cls := "btn btn-sm btn-secondary", ^.onClick --> stopTicking(),
                 <("i")(^.cls := "fa fa-pause")
               ),
               <("button")(
+                ^.cls := "btn btn-sm btn-secondary", ^.attr("disabled") := "true", ^.onClick --> reset, "Reset"
+              )
+            )
+          } else {
+            <.div(^.cls := "input-group-append",
+              <("button", "pause")(^.attr("id") := "play",
                 ^.cls := "btn btn-sm btn-secondary", ^.onClick --> startTicking(),
                 <("i")(^.cls := "fa fa-play")
               ),
               <("button")(
                 ^.cls := "btn btn-sm btn-secondary", ^.onClick --> reset, "Reset"
               )
-            ),
-
-            <.div(^.cls := "input-group col-md-3",
-              <.div(^.cls := "input-group-prepend", <.span(^.cls := "input-group-text", "Heat")),
-              <("input")(^.attr("type") := "number", ^.cls := "form-control",
-                ^.attr("value") := Simulation.heat,
-                ^.on("change") ==> { event =>
-                  event.target match {
-                    case i: HTMLInputElement => Simulation.heat = i.valueAsNumber.toInt
-                    case _ => // do nothing
-                  }
-                }
-              )
             )
-          )
+          }
         )
-      ),
-      table()
-    )
+      )
+    }
 
     /** The function we're calling on every tick to re-render this bit of UI */
     def rerender():Unit = {
@@ -244,8 +349,48 @@ object Main {
       // (the <.div() up in the constructor) to update itself so it has the children that
       // are returned by card(asteroids). ie, we're updating a local virtual DOM.
       val r = try {
-        renderElements(card())
-        moleculeNodes.foreach(_.update())
+        renderElements(<.div(
+          <.div(^.cls := "card mb-3",
+            <.div(^.cls := "card-header",
+              "Simulation"
+            ),
+            <.div(^.cls := "card-image",
+              sim()
+            ),
+            <.div(^.cls := "card-footer",
+              simControls(),
+              simFooter()
+            )
+          ),
+          <.div(^.cls := "card mb-3",
+            <.div(^.cls := "card-header",
+              "Results"
+            ),
+            <.div(^.cls := "card-body",
+              """
+                | Each time you run the simulation, the table below will record the heat value and how many molecules
+                | were outside the boundary at tick = 500. Run the simulation several times with different heat values
+                | to populate the table.
+                |""".stripMargin,
+            ),
+            <.div(^.cls := "card-body",
+              table()
+            )
+          ),
+          <.div(^.cls := "card mb-3",
+            <.div(^.cls := "card-header",
+              "Scatter plot"
+            ),
+            <.div(^.cls := "card-body",
+              """
+                | The scatter plot below automatically plots the data you collected when you ran the simulation.
+                |""".stripMargin
+            ),
+            <.div(^.cls := "card-img",
+              scatterPlot()
+            )
+          )
+        ))
       } catch {
         case x:Throwable =>
           renderElements(<.div("Error: " + x.getMessage))
@@ -253,21 +398,25 @@ object Main {
       }
     }
 
-    var handle:Option[SetIntervalHandle] = None
+    var ticking = false
 
     def startTicking(): Unit = {
+      println("Starting ticking")
 
-      def handleTick():Unit = {
+      ticking = true
+      def tick(t:Double):Unit = {
         Simulation.step()
         rerender()
-      }
 
-      handle = handle orElse Some(timers.setInterval(14)(handleTick()))
+        if (ticking) dom.window.requestAnimationFrame(tick)
+      }
+      dom.window.requestAnimationFrame(tick)
     }
 
     def stopTicking():Unit = {
-      handle.foreach(timers.clearInterval)
-      handle = None
+      println("Stopping ticking")
+
+      ticking = false
     }
 
     def reset():Unit = {
@@ -278,6 +427,7 @@ object Main {
 
     override def afterAttach(): Unit = {
       super.afterAttach()
+      reset()
       rerender()
     }
 
