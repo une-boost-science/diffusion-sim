@@ -16,8 +16,7 @@
     width: 645px;
 }
 
-.results-table {
-    width: auto!important;
+.results {
     max-width: 100%;
     overflow-x: scroll;
 }
