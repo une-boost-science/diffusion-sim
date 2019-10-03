@@ -320,8 +320,8 @@ object Main {
           ),
           if (ticking) {
             <.div(^.cls := "input-group-append",
-              <("button", "play")(^.attr("id") := "pause",
-                ^.cls := "btn btn-sm btn-secondary", ^.onClick --> stopTicking(),
+              <("button")(
+                ^.cls := "btn btn-sm btn-secondary", ^.onClick --> stopTicking,
                 <("i")(^.cls := "fa fa-pause")
               ),
               <("button")(
@@ -330,8 +330,8 @@ object Main {
             )
           } else {
             <.div(^.cls := "input-group-append",
-              <("button", "pause")(^.attr("id") := "play",
-                ^.cls := "btn btn-sm btn-secondary", ^.onClick --> startTicking(),
+              <("button")(
+                ^.cls := "btn btn-sm btn-secondary", ^.onClick --> startTicking,
                 <("i")(^.cls := "fa fa-play")
               ),
               <("button")(
